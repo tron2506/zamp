@@ -177,7 +177,10 @@ async function renderDashboard() {
   $("#q").oninput = (e) => { q = e.target.value.toLowerCase().trim(); paint(); };
   $("#attn").onclick = (e) => { const li = e.target.closest("li[data-id]"); if (li) location.hash = `#/run/${li.dataset.id}`; };
   $("#rows").onclick = (e) => { const tr = e.target.closest("tr[data-id]"); if (tr) location.hash = `#/run/${tr.dataset.id}`; };
-  $("#seed").onclick = async () => { const r = await api("/api/samples/run-all", { method: "POST" }); window._seedUntil = Date.now() + 20000; toast(`Running ${r.queued} test scenarios…`); load(); };
+  $("#seed").onclick = async () => {
+    try { const r = await api("/api/samples/run-all", { method: "POST" }); window._seedUntil = Date.now() + 20000; toast(`Running ${r.queued} test scenarios…`); load(); }
+    catch (err) { toast(err.message); }
+  };
   $("#reset").onclick = async () => { if (!confirm("Delete all runs, emails and non-seeded vendors?")) return; await api("/api/reset", { method: "POST" }); toast("Demo data reset"); load(); };
 }
 
@@ -278,7 +281,11 @@ async function renderNew(_arg, params) {
   view.onclick = async (e) => {
     const l = e.target.closest("[data-load]"), r = e.target.closest("[data-run]");
     if (l) await loadScenario(l.dataset.load);
-    if (r) { r.disabled = true; const { run_id } = await api(`/api/samples/${r.dataset.run}/run`, { method: "POST" }); location.hash = `#/run/${run_id}`; }
+    if (r) {
+      r.disabled = true;
+      try { const { run_id } = await api(`/api/samples/${r.dataset.run}/run`, { method: "POST" }); location.hash = `#/run/${run_id}`; }
+      catch (err) { toast(err.message); r.disabled = false; }
+    }
   };
   cleanup.push(() => { view.onclick = null; });
   $("#clear").onclick = () => { form.reset(); Object.keys(slotNames).forEach((k) => setFile(k, null)); $("#banner").innerHTML = ""; syncCountry(); };

@@ -20,9 +20,8 @@ LLM_ENABLED = bool(LLM_API_KEY and LLM_BASE_URL and LLM_MODEL)
 # Small pause between stages so the live view is watchable in a demo. Set to 0 for batch use.
 STAGE_DELAY_MS = int(os.getenv("STAGE_DELAY_MS", "450"))
 
-# Login for the deployed app (HTTP Basic). Leave APP_PASSWORD empty for local use without a login.
-APP_USERNAME = os.getenv("APP_USERNAME", "admin").strip()
-APP_PASSWORD = os.getenv("APP_PASSWORD", "").strip()
+# The app is open (no login). Cap runs per visitor per hour to bound LLM spend. 0 = unlimited.
+RUNS_PER_HOUR_PER_IP = int(os.getenv("RUNS_PER_HOUR_PER_IP", "60"))
 
 for d in (DATA_DIR, UPLOAD_DIR, SAMPLES_DIR):
     d.mkdir(parents=True, exist_ok=True)

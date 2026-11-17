@@ -74,7 +74,9 @@ The app is a single container (`Dockerfile`). Production needs three things:
 
 1. **A persistent disk mounted at `/data`.** It holds the SQLite database and uploaded documents. Without it, run history resets on every redeploy. Sample PDFs regenerate on startup either way.
 2. **Exactly one instance and one worker.** The live view streams from an in-process event bus, and SQLite wants a single writer.
-3. **Environment variables:** `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, and **`APP_PASSWORD`** (turns on the login; the app shows bank details and tax IDs). Optional: `APP_USERNAME` (default `admin`) and `STAGE_DELAY_MS`.
+3. **Environment variables:** `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`. Optional: `STAGE_DELAY_MS` and `RUNS_PER_HOUR_PER_IP` (default 60).
+
+The app deliberately has **no login**, so a tester can open the link and start immediately. All data in it is synthetic test data. To bound LLM spend if the link is shared, each visitor can start at most `RUNS_PER_HOUR_PER_IP` runs per hour; "Run all test scenarios" counts as one run per scenario.
 
 The health check is `GET /healthz`, which needs no login.
 

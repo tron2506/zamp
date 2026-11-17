@@ -3,17 +3,17 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import binascii
 import json
 import re
-import secrets
 import shutil
+import time
 import uuid
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -39,20 +39,22 @@ app = FastAPI(title="Vendor Onboarding Autopilot", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
-@app.middleware("http")
-async def basic_auth(request: Request, call_next):
-    """Single shared login when APP_PASSWORD is set. Vendor data (bank details, tax IDs) must not be public."""
-    if not config.APP_PASSWORD or request.url.path == "/healthz":
-        return await call_next(request)
-    header = request.headers.get("authorization", "")
-    if header.lower().startswith("basic "):
-        try:
-            user, _, pwd = base64.b64decode(header[6:]).decode().partition(":")
-            if secrets.compare_digest(user, config.APP_USERNAME) and secrets.compare_digest(pwd, config.APP_PASSWORD):
-                return await call_next(request)
-        except (binascii.Error, UnicodeDecodeError):
-            pass
-    return PlainTextResponse("Authentication required", 401, headers={"WWW-Authenticate": 'Basic realm="Onboarding"'})
+_run_log: dict[str, deque] = defaultdict(deque)
+
+
+def _rate_limit(request: Request, cost: int = 1) -> None:
+    """The app is open (no login), so cap how many runs one visitor can start per hour.
+    This bounds LLM spend if the link is shared; a normal demo uses a few dozen runs at most."""
+    limit = config.RUNS_PER_HOUR_PER_IP
+    if limit <= 0:
+        return
+    ip = request.client.host if request.client else "unknown"
+    now, log = time.monotonic(), _run_log[ip]
+    while log and now - log[0] > 3600:
+        log.popleft()
+    if len(log) + cost > limit:
+        raise HTTPException(429, f"Run limit reached ({limit} per hour). Please try again later.")
+    log.extend([now] * cost)
 
 
 @app.get("/healthz")
@@ -105,6 +107,7 @@ def sample_file(key: str, filename: str):
 @app.post("/api/submissions")
 async def submit_form(request: Request):
     """The web form: multipart fields + up to 4 PDF uploads (one per slot)."""
+    _rate_limit(request)
     form = await request.form()
     run_id = _new_id()
     folder = config.UPLOAD_DIR / run_id
@@ -140,8 +143,9 @@ class JsonSubmission(BaseModel):
 
 
 @app.post("/api/submissions/json")
-async def submit_json(body: JsonSubmission):
+async def submit_json(body: JsonSubmission, request: Request):
     """Machine-to-machine intake (e.g. from a vendor portal or email parser)."""
+    _rate_limit(request)
     run_id = _new_id()
     folder = config.UPLOAD_DIR / run_id
     folder.mkdir(parents=True, exist_ok=True)
@@ -173,15 +177,17 @@ def _sample_submission(key: str, run_id: str) -> dict:
 
 
 @app.post("/api/samples/{key}/run")
-async def run_sample(key: str):
+async def run_sample(key: str, request: Request):
+    _rate_limit(request)
     run_id = _new_id()
     _start(run_id, _sample_submission(key, run_id), f"sample:{key}")
     return {"run_id": run_id}
 
 
 @app.post("/api/samples/run-all")
-async def run_all():
+async def run_all(request: Request):
     """Seed the dashboard: every scenario in order (Kestrel resubmissions after the first attempt)."""
+    _rate_limit(request, cost=len(samples.SCENARIOS))
     async def go():
         for m in samples.load_all():
             run_id = _new_id()

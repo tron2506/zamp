@@ -589,9 +589,9 @@ function renderHow() {
     ["Tell the vendor", "A plain-English email listing exactly what is needed — and nothing about fraud rules when fraud is suspected."],
   ];
   const sev = [["pass", "Check passed"], ["info", "Noted, doesn't block"], ["action", "Vendor must fix → pending"], ["review", "A person should look → pending"], ["critical", "Stop → rejected"]];
-  view.innerHTML = `<div class="page-head"><div><h1>How it works</h1><p>For procurement and finance teams — what the process checks, and how it decides.</p></div><a class="btn primary" href="#/new">${I.play}Try it</a></div>
+  view.innerHTML = `<div class="page-head"><div><h1>How it works</h1><p>A brief on the application: what the process checks & how it decides.</p></div><a class="btn primary" href="#/new">${I.play}Try it</a></div>
     <div class="card card-pad prose" style="margin-bottom:14px;max-width:none">
-      <h2>In one sentence</h2><p style="margin:6px 0 0">A vendor submits a form and their documents; in a few seconds the process checks completeness, validity and consistency the way a careful analyst would, then <b>approves</b>, <b>asks the vendor for exactly what is missing</b>, or <b>stops</b> a suspicious submission — and shows its reasoning for every step.</p></div>
+      <h2>Workflow</h2><p style="margin:6px 0 0">A vendor submits a form and their documents; in a few seconds the process checks completeness, validity and consistency the way a careful analyst would, then <b>approves</b>, <b>asks the vendor for exactly what is missing</b>, or <b>stops</b> a suspicious submission — and shows its reasoning for every step.</p></div>
     <div class="how" style="margin-bottom:14px">${steps.map(([t, d], i) => `<div class="card"><div class="num">STEP ${i + 1}</div><h3 style="margin-top:4px">${esc(t)}</h3><p>${esc(d)}</p></div>`).join("")}</div>
     <div class="grid-2">
       <div class="card card-pad"><h2>How findings turn into a decision</h2><div class="sev-legend" style="margin-top:12px">${sev.map(([k, d]) => `<div class="finding ${k}"><div class="ft">${SEV_ICON[k]}<span>${SEV_LABEL[k]}</span></div><div class="fd" style="margin-left:0">${d}</div></div>`).join("")}</div>

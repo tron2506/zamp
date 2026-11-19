@@ -1,6 +1,6 @@
 # Vendor Onboarding Autopilot
 
-Takes a vendor submission (web form plus PDF documents) and returns **APPROVED · PENDING · REJECTED**. Every finding shows its reasoning, and the vendor gets an email listing exactly what is still needed. A live run view streams each stage as it executes, and a dashboard covers every run.
+Takes a vendor submission (web form plus PDF documents) and returns **APPROVED · PENDING · REJECTED**. Every finding shows its reasoning, and the vendor gets email listing exactly what is still needed. A live run view streams each stage as it executes, and a dashboard covers every run.
 
 See **[PROCESS.md](PROCESS.md)** for the full process map (stages, decision rules, edge cases).
 

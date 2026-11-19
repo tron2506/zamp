@@ -231,14 +231,14 @@ async function renderNew(_arg, params) {
       </div></fieldset>
       <fieldset><legend class="sec"><span class="n">2</span>Contact</legend><div class="form-grid">
         <label class="f">Contact name *<input type="text" name="contact_name"></label>
-        <label class="f">Contact email *<input type="email" name="contact_email"><span class="devnote"><b>Developer note:</b> email OTP verification is not yet added.</span></label>
-        <label class="f">Contact phone *<input type="text" name="contact_phone"><span class="devnote"><b>Developer note:</b> OTP verification for mobile numbers is not yet added.</span></label>
+        <label class="f">Contact email *<input type="email" name="contact_email"><span class="devnote"><b> note:</b> email OTP verification is not yet added.</span></label>
+        <label class="f">Contact phone *<input type="text" name="contact_phone"><span class="devnote"><b> note:</b> OTP verification for mobile numbers is not yet added (cant be done for free).</span></label>
       </div></fieldset>
       <fieldset><legend class="sec"><span class="n">3</span>Tax registration</legend><div class="form-grid">
         <label class="f">Tax ID * <span class="hint" id="tax-hint">Select a country first</span><input type="text" name="tax_id"></label>
       </div></fieldset>
       <fieldset><legend class="sec"><span class="n">4</span>Bank details</legend>
-        <p class="devnote-block"><span class="devnote"><b>Developer note:</b> verifying the account with the bank (penny drop / Confirmation of Payee) is not yet added. Bank details are checked for format, check digits and consistency with the bank letter.</span></p><div class="form-grid">
+        <p class="devnote-block"><span class="devnote"><b> note:</b> verifying the account with the bank (penny drop / Confirmation of Payee) is not yet added. Bank details are checked for format, check digits and consistency with the bank letter.</span></p><div class="form-grid">
         <label class="f">Bank name *<input type="text" name="bank_name"></label>
         <label class="f">Account holder name<input type="text" name="account_holder"></label>
         <label class="f" data-scheme="iban">IBAN *<input type="text" name="iban"></label>
@@ -248,7 +248,7 @@ async function renderNew(_arg, params) {
         <label class="f" data-scheme="aba ifsc">Account number *<input type="text" name="account_number"></label>
       </div></fieldset>
       <fieldset id="docs-section"><legend class="sec"><span class="n">5</span>Documents <span class="muted small" style="font-weight:400">PDF, max 10 MB each</span></legend>
-        <p class="devnote-block"><span class="devnote"><b>Developer note:</b> verifying that documents are genuine with their issuers is not yet added. Documents are read, identified and checked for consistency, expiry and coverage.</span></p>
+        <p class="devnote-block"><span class="devnote"><b> note:</b> Bank/tax documents verification is not yet automated, currently docs are only read, identified and checked for consistency, expiry and coverage.</span></p>
         <div class="drops">${Object.entries(slotNames).map(([slot, name]) => `
           <label class="drop" data-slot="${slot}"><input type="file" accept="application/pdf,.pdf" data-slot="${slot}">
             <div class="ic">${I.doc}</div><div><span class="req">${META.required_docs.includes(slot) ? "Required" : "Recommended"}</span><b>${esc(name)}</b><span class="fname">Drop or click to upload</span></div></label>`).join("")}

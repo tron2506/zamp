@@ -38,9 +38,5 @@ MIN_LIABILITY_COVER = {"USD": 1_000_000, "GBP": 1_000_000, "EUR": 1_000_000, "IN
 INSURANCE_EXPIRY_WARNING_DAYS = 30
 BANK_LETTER_MAX_AGE_DAYS = 183
 
-FREE_EMAIL_DOMAINS = {"gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "live.com", "aol.com",
-                      "icloud.com", "proton.me", "protonmail.com", "gmx.de", "web.de", "yandex.com",
-                      "mail.com", "rediffmail.com"}
-
 SEVERITY_WEIGHT = {"pass": 0, "info": 0, "action": 10, "review": 25, "critical": 100}
 REJECT_RISK_THRESHOLD = 75

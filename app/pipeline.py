@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date
 
 from . import ai, bus, comms, config, db, documents, llm, rules
-from .validators import bank, names, tax
+from .validators import bank, emails, names, tax
 
 STAGES = [
     ("intake", "Intake & normalisation", "Clean the submission, detect resubmissions"),
@@ -116,9 +116,18 @@ def s_completeness(r: Run):
     for label in missing:
         r.add("MISSING_FIELD", "action", f"Missing: {label}", request=f"Please provide your {label.lower()}.",
               evidence={"field": label})
-    if s.get("contact_email") and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[a-z]{2,}", s["contact_email"]):
-        r.add("BAD_EMAIL", "action", "Contact email is not a valid address", evidence={"email": s["contact_email"]},
-              request="Please provide a valid contact email address.")
+    if s.get("contact_email"):
+        em = emails.check(s["contact_email"])
+        if not em["syntax_ok"]:
+            r.add("BAD_EMAIL", "action", "Contact email is not a valid address", evidence={"email": em["email"]},
+                  request="Please provide a valid contact email address.")
+        elif not em["tld_ok"]:
+            hint = f" Did you mean {em['lookalike']}?" if em["lookalike"] else ""
+            r.add("BAD_EMAIL", "action", f"Contact email domain {em['domain']} does not exist",
+                  f"“.{em['tld']}” is not a real domain ending (checked against the IANA list), so no email can be "
+                  f"delivered to {em['email']}.{hint}", evidence={"email": em["email"], "tld": em["tld"]},
+                  request=f"Your contact email {em['email']} cannot receive mail: “.{em['tld']}” is not a valid domain "
+                          f"ending.{hint} Please provide a working contact email address.")
     if s.get("country") and s["country"] not in rules.COUNTRIES:
         r.add("COUNTRY_UNSUPPORTED", "review", f"Country {s['country']} is outside the standard onboarding rules",
               "Tax and banking checks for this country need a manual review.")
@@ -496,15 +505,26 @@ def s_crossref(r: Run):
               f"{dup['legal_name']} was approved on {dup['approved_at'][:10]}. A second record would split payment history.",
               evidence={"vendor_id": dup["id"]})
 
-    email = s.get("contact_email", "")
-    domain = email.split("@")[-1] if "@" in email else ""
-    if domain in rules.FREE_EMAIL_DOMAINS:
+    em = emails.check(s.get("contact_email"))
+    domain = em["domain"]
+    if em["free"]:
         r.add("FREE_EMAIL", "info", f"Contact uses a free email provider ({domain})",
-              "Weak signal on its own; noted for the reviewer.")
+              "Weak signal on its own: many small businesses use one. Noted for the reviewer; it escalates only "
+              "together with other signals (e.g. a changed bank account).")
+    elif em["lookalike"] and em["tld_ok"]:
+        r.add("EMAIL_LOOKALIKE", "review", f"Contact email domain {domain} imitates {em['lookalike']}",
+              f"{domain} is not {em['lookalike']} but is one typo away from it. Look-alike domains are a common way to "
+              "impersonate a trusted sender, so confirm this contact on an independently sourced phone number.",
+              evidence={"domain": domain, "imitates": em["lookalike"]})
     site = re.sub(r"^(https?://)?(www\.)?", "", (s.get("website") or "").lower()).split("/")[0]
-    if site and domain and domain not in rules.FREE_EMAIL_DOMAINS and not (domain == site or domain.endswith("." + site)
-                                                                         or site.endswith("." + domain)):
+    business = domain and em["tld_ok"] and not em["free"] and not em["lookalike"]
+    if business and site and not (domain == site or domain.endswith("." + site) or site.endswith("." + domain)):
         r.add("EMAIL_SITE_MISMATCH", "info", f"Email domain {domain} differs from website {site}")
+    elif business and not site and not emails.related_to_company(
+            domain, [s.get("legal_name"), s.get("trading_name"), s.get("parent_company")]):
+        r.add("EMAIL_DOMAIN_UNRELATED", "info", f"Email domain {domain} doesn't resemble the company name",
+              "Companies often use abbreviations or group domains, so this is a note for the reviewer, not a blocker.",
+              evidence={"domain": domain})
 
     p = r.prior
     if p:
@@ -536,7 +556,7 @@ def s_crossref(r: Run):
         elif changed_bank:
             r.add("BANK_CHANGED_AS_REQUESTED", "info", "Bank details updated in response to our request")
         if changed_domain:
-            sev_note = " (now a free email provider)" if domain in rules.FREE_EMAIL_DOMAINS else ""
+            sev_note = " (now a free email provider)" if em["free"] else ""
             r.add("CONTACT_DOMAIN_CHANGED", "review", f"Contact email moved from @{prev_domain} to @{domain}{sev_note}",
                   "A change of contact domain mid-onboarding is a common sign of a hijacked or spoofed conversation.",
                   evidence={"previous": prev_domain, "current": domain})

@@ -18,6 +18,10 @@ def _recipient(r) -> tuple[str, str | None]:
         original = r.prior["submission"].get("contact_email")
         if original:
             return original, f"Sent to the original contact {original}, not the new address {to}."
+    if "BAD_EMAIL" in codes:
+        phone = r.sub.get("contact_phone")
+        return to, ("This address cannot receive mail. Contact the vendor by phone"
+                    + (f" ({phone})" if phone else "") + " to get a working email address.")
     return to, None
 
 

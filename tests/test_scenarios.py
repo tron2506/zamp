@@ -116,3 +116,32 @@ def test_decision_is_pure_function_of_findings():
     assert pipeline.decide([F("A", "critical", "")])["status"] == "REJECTED"
     # three review flags compound past the threshold
     assert pipeline.decide([F("A", "review", "")] * 3)["status"] == "REJECTED"
+
+
+# ------------------------------------------------------------------ contact email
+def _kestrel_with_contact(metas, email):
+    m = metas["kestrel_resubmit_fixed"]
+    sub = samples.to_submission(m)
+    sub.update(contact_name="John Doe", contact_email=email, website="", previous_run_id="")
+    db.reset_all()
+    rid = "E-" + uuid.uuid4().hex[:6]
+    db.create_run(rid, sub, "test")
+    asyncio.run(pipeline.run_pipeline(rid, sub, delay=0))
+    r = db.get_run(rid)
+    return r, {f["code"]: f["severity"] for f in r["result"]["findings"]}
+
+
+def test_contact_email_on_a_fake_domain_holds_the_case(metas):
+    r, codes = _kestrel_with_contact(metas, "jondoe@gmail.vo")
+    assert r["status"] == "PENDING" and codes["BAD_EMAIL"] == "action"
+    assert "phone" in (r["result"]["email"]["routing_note"] or "")
+
+
+def test_lookalike_free_mail_goes_to_review(metas):
+    r, codes = _kestrel_with_contact(metas, "jondoe@gmai1.com")
+    assert r["status"] == "PENDING" and codes["EMAIL_LOOKALIKE"] == "review"
+
+
+def test_genuine_free_mail_alone_is_only_a_note(metas):
+    r, codes = _kestrel_with_contact(metas, "jondoe@gmail.com")
+    assert r["status"] == "APPROVED" and codes["FREE_EMAIL"] == "info"

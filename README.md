@@ -66,6 +66,7 @@ Guardrails: every value the AI extracts or autofills must appear **literally in 
 | Bank | IBAN mod-97 and length, BIC, ABA checksum, IFSC; letter account = form account; **account holder vs vendor** (exact / suffix-normalised / typo / related entity / unrelated) |
 | Validity | Right company on each document, insurance expiry and minimum cover per currency, bank letter age, future-dated documents |
 | Cross-reference | Bank account already used by another approved vendor, tax ID reuse, duplicates, resubmission diff (unrequested bank change, contact-domain change, BEC pattern), previously rejected |
+| Contact email | Domain ending must be real (bundled IANA list, offline), look-alike provider domains (`gmail.vo`, `gmai1.com`) go to review, free-mail and unrelated domains are reviewer notes |
 
 **Decision rule:** any critical finding → REJECTED. Risk score ≥ 75 (compounding flags) → REJECTED. Any fixable or review item → PENDING. Otherwise APPROVED.
 

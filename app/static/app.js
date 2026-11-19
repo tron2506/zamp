@@ -69,7 +69,7 @@ const ISSUE_LABEL = {
   BANK_LETTER_STALE: "Bank letter too old", DOC_FUTURE_DATED: "Future-dated document",
   BANK_ACCOUNT_IN_USE: "Bank account used by another vendor", TAX_ID_IN_USE: "Tax ID used by another vendor",
   DUPLICATE_VENDOR: "Duplicate vendor", BANK_CHANGED_UNPROMPTED: "Unrequested bank change", CONTACT_DOMAIN_CHANGED: "Contact domain changed",
-  BEC_PATTERN: "Email-compromise pattern", PREVIOUSLY_REJECTED: "Previously rejected", BAD_EMAIL: "Invalid email",
+  BEC_PATTERN: "Email-compromise pattern", PREVIOUSLY_REJECTED: "Previously rejected", BAD_EMAIL: "Invalid email", EMAIL_LOOKALIKE: "Look-alike email domain",
   COUNTRY_UNSUPPORTED: "Unsupported country", BANK_SCHEME_UNKNOWN: "No bank rules for country",
 };
 

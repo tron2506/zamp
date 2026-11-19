@@ -8,7 +8,7 @@ import traceback
 from dataclasses import asdict, dataclass, field
 from datetime import date
 
-from . import bus, comms, config, db, documents, llm, rules
+from . import ai, bus, comms, config, db, documents, llm, rules
 from .validators import bank, names, tax
 
 STAGES = [
@@ -19,6 +19,7 @@ STAGES = [
     ("bank", "Bank verification", "Account validity and who actually owns the account"),
     ("validity", "Document validity", "Right company, not expired, sufficient cover"),
     ("crossref", "Cross-reference & fraud screen", "Vendor master, history, resubmission changes"),
+    ("ai_review", "AI second look", "AI reads the documents for anything the rules missed — notes only, never changes the decision"),
     ("decision", "Decision", "Deterministic rules → approved / pending / rejected"),
     ("communicate", "Vendor communication", "Tell the vendor exactly what is needed"),
 ]
@@ -48,6 +49,7 @@ class Run:
         self.seq = 0
         self.docs: dict[str, dict] = {}
         self.llm_used: list[str] = []
+        self.doc_texts: dict[str, str] = {}
         self.prior: dict | None = None
         self.stage = ""
         self.started = time.perf_counter()
@@ -137,6 +139,7 @@ async def s_documents(r: Run):
                   request=f"The file “{d['filename']}” could not be read. Please upload a text-based PDF or a clearer scan "
                           f"of your {slot_name.lower()}.", evidence={"file": d["filename"], "slot": d["slot"]})
             continue
+        r.doc_texts[d["filename"]] = text
         cls = documents.classify(text)
         doc_type, source = cls["type"], "keywords"
         fields = {}
@@ -416,7 +419,7 @@ def s_validity(r: Run):
             r.add("DOC_WRONG_COMPANY", "action", f"{doc_label} belongs to a different company",
                   f"Issued to “{nm}”, not “{legal}” ({cmp['reason']}).",
                   request=f"The {doc_label.lower()} you sent (“{d['filename']}”) is issued to “{nm}”. Please upload the "
-                          f"{req_name} issued to {legal}.", evidence={"document_name": nm, "vendor": legal})
+                          f"{req_name} issued to {legal}.", evidence={"document_name": nm, "vendor": legal, "file": d["filename"]})
 
     ins = r.docs.get("insurance_certificate", {}).get("fields")
     if ins:
@@ -549,8 +552,26 @@ def s_crossref(r: Run):
         r.add("SCREEN_CLEAR", "pass", "No conflicts with vendor master or submission history")
 
 
+AI_NOTE = "AI_OBSERVATION"
+
+
+async def s_ai_review(r: Run):
+    if not llm.enabled():
+        r.log("AI assist is off — skipped (rule checks above are complete on their own)")
+        return
+    r.log(f"Asking {config.LLM_MODEL} for a second look at {len(r.doc_texts)} document(s); bank numbers masked")
+    notes = await ai.observations(r.sub, r.docs, r.doc_texts, r.findings)
+    r.llm_used.append(f"second look: {len(notes)} note(s)")
+    for n in notes:
+        r.add(AI_NOTE, "info", n["title"], n["detail"], evidence={"quote": n["quote"], "source": n["source"]})
+    if not notes:
+        r.log("AI found nothing beyond what the rules already checked")
+
+
 def decide(findings: list[Finding]) -> dict:
-    """Pure function: findings → decision. This is the whole policy."""
+    """Pure function: findings → decision. This is the whole policy.
+    AI observations are excluded explicitly: they are notes for humans and can never move the status or score."""
+    findings = [f for f in findings if f.code != AI_NOTE]
     risk = min(100, sum(f.risk() for f in findings))
     crit = [f for f in findings if f.severity == "critical"]
     action = [f for f in findings if f.severity == "action"]
@@ -632,6 +653,8 @@ async def run_pipeline(run_id: str, sub: dict, delay: float | None = None):
                 s_validity(r)
             elif key == "crossref":
                 s_crossref(r)
+            elif key == "ai_review":
+                await s_ai_review(r)
             elif key == "decision":
                 decision = s_decision(r)
             elif key == "communicate":

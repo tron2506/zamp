@@ -22,12 +22,13 @@ def status() -> dict:
             "base_url": config.LLM_BASE_URL or None}
 
 
-async def chat(system: str, user: str, json_mode: bool = False, max_tokens: int = 900) -> str | None:
+async def chat(system: str, user: str, json_mode: bool = False, max_tokens: int = 900,
+               history: list[dict] | None = None) -> str | None:
     if not config.LLM_ENABLED:
         return None
     body = {
         "model": config.LLM_MODEL,
-        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        "messages": [{"role": "system", "content": system}, *(history or []), {"role": "user", "content": user}],
         "temperature": 0,
         "max_tokens": max_tokens,
     }

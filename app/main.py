@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import bus, config, db, documents, llm, pipeline, rules, samples
+from . import ai, bus, config, db, documents, llm, pipeline, rules, samples
 
 STATIC = Path(__file__).parent / "static"
 SLOTS = ["tax_certificate", "bank_letter", "insurance_certificate", "incorporation_certificate"]
@@ -127,6 +127,33 @@ async def submit_form(request: Request):
             sub["documents"].append({"slot": slot, "filename": f.filename, "path": str(path)})
     _start(run_id, sub, str(form.get("source") or "form"))
     return {"run_id": run_id}
+
+
+@app.post("/api/autofill")
+async def autofill(request: Request):
+    """Pre-fill the form from uploaded documents: rules first, AI fills gaps; every value is verbatim from a document."""
+    _rate_limit(request)
+    form = await request.form()
+    folder = config.DATA_DIR / "autofill" / uuid.uuid4().hex
+    folder.mkdir(parents=True, exist_ok=True)
+    try:
+        files = []
+        for slot in SLOTS:
+            f = form.get(slot)
+            if hasattr(f, "read"):
+                data = await f.read()
+                if not data:
+                    continue
+                if len(data) > MAX_UPLOAD:
+                    raise HTTPException(413, f"{f.filename} is larger than 10 MB")
+                path = folder / _safe(f.filename)
+                path.write_bytes(data)
+                files.append({"slot": slot, "filename": f.filename, "path": str(path)})
+        if not files:
+            raise HTTPException(422, "Attach at least one document first")
+        return await ai.autofill(files)
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 class JsonDoc(BaseModel):
@@ -268,6 +295,30 @@ async def stream(run_id: str):
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+class Ask(BaseModel):
+    question: str
+    history: list[dict] = []
+
+
+@app.post("/api/runs/{run_id}/ask")
+async def ask(run_id: str, body: Ask, request: Request):
+    """Reviewer Q&A grounded in this case's findings. Read-only: it cannot change anything."""
+    run = db.get_run(run_id)
+    if not run:
+        raise HTTPException(404)
+    if run["status"] in ("RUNNING", "ERROR"):
+        raise HTTPException(409, "The case must finish running first")
+    if not llm.enabled():
+        raise HTTPException(503, "AI assist is off: set LLM_API_KEY, LLM_BASE_URL and LLM_MODEL in .env")
+    if not body.question.strip():
+        raise HTTPException(422, "Ask a question")
+    _rate_limit(request)
+    out = await ai.ask_case(run, body.question.strip(), body.history)
+    if not out:
+        raise HTTPException(502, "The AI service did not answer. Please try again.")
+    return out
 
 
 class Review(BaseModel):

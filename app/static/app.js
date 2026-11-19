@@ -39,6 +39,8 @@ const I = {
   up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg>',
   play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l10.5-6.5z"/></svg>',
   reply: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 015 5v6"/></svg>',
+  spark: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l1.9 5.6 5.6 1.9-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.9zM19 15l.9 2.1 2.1.9-2.1.9L19 21l-.9-2.1-2.1-.9 2.1-.9z"/></svg>',
+  send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l16-8-6 16-2.5-6.5z"/></svg>',
   bolt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>',
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
 };
@@ -46,6 +48,12 @@ const STATUS_ICON = { APPROVED: I.check, PENDING: I.clock, REJECTED: I.x, RUNNIN
 const STATUS_LABEL = { APPROVED: "Approved", PENDING: "Pending", REJECTED: "Rejected", RUNNING: "Running", ERROR: "Error" };
 const SEV_ICON = { pass: I.okc, info: I.info, action: I.warn, review: I.eye, critical: I.stop };
 const SEV_LABEL = { pass: "Passed", info: "Note", action: "Vendor action", review: "Needs review", critical: "Critical" };
+const AI_NOTE = "AI_OBSERVATION";
+function findingHTML(f, extraStyle = "") {
+  const ai = f.code === AI_NOTE;
+  const q = ai && f.evidence?.quote ? `<div class="fq">“${esc(f.evidence.quote)}” — ${esc(f.evidence.source)}</div>` : "";
+  return `<div class="finding ${esc(f.severity)}${ai ? " ai" : ""}" style="${extraStyle}"><div class="ft">${ai ? I.spark : SEV_ICON[f.severity]}<span>${esc(f.title)}</span><span class="sev">${ai ? "AI note" : SEV_LABEL[f.severity]}</span></div>${f.detail ? `<div class="fd">${esc(f.detail)}</div>` : ""}${q}</div>`;
+}
 const badge = (s, lg = false) => `<span class="badge ${esc(s)} ${lg ? "lg" : ""}">${STATUS_ICON[s] || ""}${esc(STATUS_LABEL[s] || s)}</span>`;
 
 const ISSUE_LABEL = {
@@ -206,11 +214,12 @@ async function renderNew(_arg, params) {
       <div class="card-pad"><div class="scenarios">${META.scenarios.map((s) => `
         <div class="scn"><div class="top"><span class="chip">${esc(s.edge)}</span>${badge(s.expected)}</div>
           <h3>${esc(s.title)}</h3><p>${esc(s.description)}</p>
-          <div class="row"><button class="btn sm" data-load="${esc(s.key)}">Load into form</button><button class="btn sm primary" data-run="${esc(s.key)}">${I.play}Run now</button></div></div>`).join("")}
+          <div class="row"><button class="btn sm" data-load="${esc(s.key)}">Load into form</button><button class="btn sm" data-docs="${esc(s.key)}" title="Attach only the PDFs, then try AI autofill">Docs only</button><button class="btn sm primary" data-run="${esc(s.key)}">${I.play}Run now</button></div></div>`).join("")}
       </div></div>
     </details>
     <form class="card" id="form" autocomplete="off">
       <input type="hidden" name="previous_run_id"><input type="hidden" name="source" value="form">
+      <div class="autofill-bar"><div class="ab-text">${I.spark}<div><b>Have your documents ready?</b> Upload them in section 5 and let AI fill in this form. Every value is copied from your documents and tagged with its source, so you can check it before submitting.</div></div><button type="button" class="btn ai-btn autofill-btn">${I.spark}Autofill from documents</button></div>
       <fieldset><legend class="sec"><span class="n">1</span>Company</legend><div class="form-grid">
         <label class="f">Legal company name *<input type="text" name="legal_name" placeholder="As registered"></label>
         <label class="f">Country of registration *<select name="country"><option value="">Select…</option>${Object.entries(META.countries).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select></label>
@@ -238,12 +247,12 @@ async function renderNew(_arg, params) {
         <label class="f" data-scheme="ifsc">IFSC code *<input type="text" name="ifsc"></label>
         <label class="f" data-scheme="aba ifsc">Account number *<input type="text" name="account_number"></label>
       </div></fieldset>
-      <fieldset><legend class="sec"><span class="n">5</span>Documents <span class="muted small" style="font-weight:400">PDF, max 10 MB each</span></legend>
+      <fieldset id="docs-section"><legend class="sec"><span class="n">5</span>Documents <span class="muted small" style="font-weight:400">PDF, max 10 MB each</span></legend>
         <p class="devnote-block"><span class="devnote"><b>Developer note:</b> verifying that documents are genuine with their issuers is not yet added. Documents are read, identified and checked for consistency, expiry and coverage.</span></p>
         <div class="drops">${Object.entries(slotNames).map(([slot, name]) => `
           <label class="drop" data-slot="${slot}"><input type="file" accept="application/pdf,.pdf" data-slot="${slot}">
             <div class="ic">${I.doc}</div><div><span class="req">${META.required_docs.includes(slot) ? "Required" : "Recommended"}</span><b>${esc(name)}</b><span class="fname">Drop or click to upload</span></div></label>`).join("")}
-        </div></fieldset>
+        </div><div class="autofill-row"><button type="button" class="btn ai-btn autofill-btn">${I.spark}Autofill from documents</button><span class="muted small">Fills empty fields only; your own entries are never overwritten.</span></div></fieldset>
       <div class="form-foot"><span class="muted small">Submitting starts the automated checks; you'll watch each stage live.</span>
         <div class="actions"><button class="btn" type="button" id="clear">Clear</button><button class="btn primary" type="submit" id="submit">${I.play}Submit &amp; run checks</button></div></div>
     </form>`;
@@ -279,6 +288,60 @@ async function renderNew(_arg, params) {
     form.scrollIntoView({ behavior: "smooth" });
   };
 
+  const clearTags = () => {
+    $$(".src-tag", form).forEach((t) => t.remove());
+    $$("label.autofilled", form).forEach((l) => l.classList.remove("autofilled", "ai", "rule"));
+  };
+  const markFilled = (el, info) => {
+    const label = el.closest("label");
+    if (!label) return;
+    label.classList.add("autofilled", info.source);
+    label.insertAdjacentHTML("beforeend", `<span class="src-tag ${info.source}">${info.source === "ai" ? I.spark + "AI" : "RULE"} · from ${esc(info.from)}</span>`);
+    el.addEventListener("input", () => { label.classList.remove("autofilled", "ai", "rule"); $(".src-tag", label)?.remove(); }, { once: true });
+  };
+  const runAutofill = async () => {
+    if (!Object.keys(files).length) { toast("Attach at least one document in section 5 first"); $("#docs-section").scrollIntoView({ behavior: "smooth" }); return; }
+    const btns = $$(".autofill-btn", form);
+    btns.forEach((b) => { b.disabled = true; b.innerHTML = `${I.spin}Reading documents…`; });
+    try {
+      const fd = new FormData();
+      for (const [slot, f] of Object.entries(files)) fd.append(slot, f, f.name);
+      const res = await api("/api/autofill", { method: "POST", body: fd });
+      clearTags();
+      const filled = [], kept = [];
+      for (const [name, info] of Object.entries(res.fields)) {
+        const el = form.elements[name];
+        if (!el) continue;
+        const cur = (el.value || "").trim();
+        if (cur && cur.toLowerCase() !== info.value.toLowerCase()) { kept.push([name, info]); continue; }
+        if (cur) continue;
+        if (el.tagName === "SELECT" && ![...el.options].some((o) => o.value === info.value)) continue;
+        el.value = info.value; markFilled(el, info); filled.push(info);
+      }
+      syncCountry();
+      const nAi = filled.filter((f) => f.source === "ai").length;
+      const notes = [];
+      for (const d of res.documents) {
+        if (!d.readable) notes.push(`“${d.filename}” could not be read (scanned image?).`);
+        else if (d.detected && d.detected !== d.slot) notes.push(`“${d.filename}” looks like a ${META.slots[d.detected]}, not a ${META.slots[d.slot]}; it will be re-filed automatically when you submit.`);
+      }
+      kept.forEach(([n, i]) => notes.push(`Kept your ${n.replace(/_/g, " ")}; the document says “${i.value}”.`));
+      $("#banner").innerHTML = `<div class="banner ai">${I.spark}<div><b>Filled ${filled.length} field${filled.length === 1 ? "" : "s"} from ${res.documents.length} document${res.documents.length === 1 ? "" : "s"}</b>: ${filled.length - nAi} by rules, ${nAi} by AI${META.llm.enabled ? "" : " (AI assist is off, rules only)"}. Each value was copied from the document text. Please check them and complete the contact details.
+        ${notes.length ? `<ul class="small" style="margin:6px 0 0;padding-left:18px">${notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}</div></div>`;
+      form.scrollIntoView({ behavior: "smooth" });
+    } catch (err) { toast(err.message); }
+    finally { btns.forEach((b) => { b.disabled = false; b.innerHTML = `${I.spark}Autofill from documents`; }); }
+  };
+  const loadDocsOnly = async (key) => {
+    const s = META.scenarios.find((x) => x.key === key);
+    form.reset(); clearTags(); form.previous_run_id.value = ""; form.source.value = `sample:${key}`;
+    Object.keys(slotNames).forEach((k) => setFile(k, null));
+    for (const [slot, fn] of Object.entries(s.files)) setFile(slot, await fetchFile(`/api/samples/${key}/files/${fn}`, fn));
+    syncCountry();
+    $("#banner").innerHTML = `<div class="banner ai">${I.spark}<span>Attached the documents for <b>${esc(s.title)}</b> with an empty form. Click <b>Autofill from documents</b> to let AI fill it in.</span></div>`;
+    form.scrollIntoView({ behavior: "smooth" });
+  };
+  $$(".autofill-btn", form).forEach((b) => (b.onclick = runAutofill));
   form.country.onchange = syncCountry;
   $$(".drop input", form).forEach((inp) => {
     inp.onchange = () => setFile(inp.dataset.slot, inp.files[0]);
@@ -288,8 +351,9 @@ async function renderNew(_arg, params) {
     drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); if (e.dataTransfer.files[0]) setFile(inp.dataset.slot, e.dataTransfer.files[0]); };
   });
   view.onclick = async (e) => {
-    const l = e.target.closest("[data-load]"), r = e.target.closest("[data-run]");
-    if (l) await loadScenario(l.dataset.load);
+    const l = e.target.closest("[data-load]"), r = e.target.closest("[data-run]"), dOnly = e.target.closest("[data-docs]");
+    if (l) { clearTags(); await loadScenario(l.dataset.load); }
+    if (dOnly) await loadDocsOnly(dOnly.dataset.docs);
     if (r) {
       r.disabled = true;
       try { const { run_id } = await api(`/api/samples/${r.dataset.run}/run`, { method: "POST" }); location.hash = `#/run/${run_id}`; }
@@ -297,7 +361,7 @@ async function renderNew(_arg, params) {
     }
   };
   cleanup.push(() => { view.onclick = null; });
-  $("#clear").onclick = () => { form.reset(); Object.keys(slotNames).forEach((k) => setFile(k, null)); $("#banner").innerHTML = ""; syncCountry(); };
+  $("#clear").onclick = () => { clearTags(); form.reset(); Object.keys(slotNames).forEach((k) => setFile(k, null)); $("#banner").innerHTML = ""; syncCountry(); };
   form.onsubmit = async (e) => {
     e.preventDefault();
     const fd = new FormData();
@@ -361,8 +425,7 @@ async function renderRun(id) {
     } else if (ev.state === "log" && box) {
       box.insertAdjacentHTML("beforeend", `<div class="log">${esc(ev.data.message)}</div>`);
     } else if (ev.state === "finding" && box) {
-      const f = ev.data;
-      box.insertAdjacentHTML("beforeend", `<div class="finding ${esc(f.severity)}"><div class="ft">${SEV_ICON[f.severity]}<span>${esc(f.title)}</span><span class="sev">${SEV_LABEL[f.severity]}</span></div>${f.detail ? `<div class="fd">${esc(f.detail)}</div>` : ""}</div>`);
+      box.insertAdjacentHTML("beforeend", findingHTML(ev.data));
     } else if (ev.state === "document" && box) {
       const d = ev.data, nm = META.slots[d.type] || d.type;
       box.insertAdjacentHTML("beforeend", `<div class="docrow">${I.doc.replace("<svg", '<svg width="15" height="15"')}<b>${esc(d.filename)}</b> → ${esc(nm)}
@@ -418,21 +481,54 @@ function renderSide(run) {
     </div>
     <div class="card">
       <div class="tabs" id="tabs">
-        <button data-t="email" class="on">Vendor email</button><button data-t="summary">Reviewer brief</button>
+        <button data-t="email" class="on">Vendor email</button><button data-t="ask" class="ask-tab">${I.spark}Ask AI</button><button data-t="summary">Reviewer brief</button>
         <button data-t="docs">Documents (${docs.length})</button>${run.status === "PENDING" && !run.superseded_by ? `<button data-t="review">Review</button>` : ""}
       </div>
       <div id="tab-body"></div>
     </div>`;
 
   const e = r.email || {};
+  const aiNotes = findings.filter((f) => f.code === AI_NOTE);
+  const titleOf = {};
+  findings.forEach((f) => { if (!titleOf[f.code]) titleOf[f.code] = f; });
+  const chat = [];
+  const suggestions = [
+    `Why is this case ${String(run.status).toLowerCase()}?`,
+    ...(run.status === "PENDING" ? ["What exactly do we need from the vendor?"] : []),
+    ...(run.previous_run_id ? ["What changed since the last submission?"] : []),
+    ...(aiNotes.length ? ["Explain the AI observations"] : []),
+    "What should I verify before approving?",
+  ].slice(0, 4);
+  const chatHTML = () => chat.map((m) => `
+      <div class="msg q">${esc(m.q)}</div>
+      <div class="msg a ${m.error ? "err" : ""}">${m.a == null ? `${I.spin} Thinking…` : esc(m.a)}
+        ${m.cites?.length ? `<div class="cites">${m.cites.map((c) => `<span class="cite ${esc(titleOf[c]?.severity || "info")}" title="${esc(c)}">${esc(titleOf[c]?.title || c)}</span>`).join("")}</div>` : ""}</div>`).join("");
+  const askTab = () => META.llm.enabled ? `<div class="tab-body ask">
+        <p class="small muted" style="margin:0 0 10px">${I.spark.replace("<svg", '<svg width="13" height="13" style="vertical-align:-2px;color:var(--accent)"')} Answers come only from this case's findings and documents (bank numbers masked) and cite the findings used. The AI can explain the decision but cannot change it.</p>
+        <div class="chat" id="chat">${chatHTML()}</div>
+        <div class="suggest">${suggestions.map((q) => `<button type="button" class="chip" data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>
+        <form id="ask-form" class="ask-form"><input type="text" id="ask-q" placeholder="Ask anything about this case…" maxlength="500" autocomplete="off"><button class="btn primary sm" type="submit">${I.send}Ask</button></form></div>`
+    : `<div class="tab-body"><p class="muted">AI assist is off. Set LLM_API_KEY, LLM_BASE_URL and LLM_MODEL in .env to enable it.</p></div>`;
+  const ask = async (q) => {
+    q = (q || "").trim();
+    if (!q || chat.some((m) => m.a == null)) return;
+    const history = chat.filter((m) => m.a && !m.error).slice(-4).map((m) => ({ q: m.q, a: m.a }));
+    const m = { q, a: null }; chat.push(m); $("#chat").innerHTML = chatHTML(); $("#chat").scrollTop = 1e6;
+    try { const out = await api(`/api/runs/${run.id}/ask`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: q, history }) }); m.a = out.answer; m.cites = out.cites; }
+    catch (err) { m.a = err.message; m.error = true; }
+    if ($("#chat")) { $("#chat").innerHTML = chatHTML(); $("#chat").scrollTop = 1e6; }
+  };
   const tabs = {
+    ask: askTab,
     email: () => `<div class="email"><div class="hdr"><b>To</b><span>${esc(e.to || "—")}</span><b>Subject</b><span>${esc(e.subject)}</span>
         <b>Wording</b><span>${e.llm ? `<span class="chip llm">AI-worded · ${esc(r.llm_model)}</span>` : `<span class="chip">template</span>`} <span class="muted small">requested items are always inserted by rules</span></span></div>
         ${e.routing_note ? `<div class="banner" style="margin:12px 18px 0">${I.warn}<span>${esc(e.routing_note)}</span></div>` : ""}<pre>${esc(e.body)}</pre></div>`,
     summary: () => `<div class="tab-body"><p style="margin:0 0 10px">${esc(r.reviewer_summary?.text)}</p>
         <div class="small muted">${r.reviewer_summary?.llm ? "Written by AI from the findings below; it cannot change the decision." : "Generated from a template (AI assist off)."}</div>
         <h3 style="margin:16px 0 8px">Open items</h3>
-        ${findings.filter((f) => ["critical", "review", "action"].includes(f.severity)).map((f) => `<div class="finding ${f.severity}" style="margin-bottom:6px"><div class="ft">${SEV_ICON[f.severity]}<span>${esc(f.title)}</span><span class="sev">${SEV_LABEL[f.severity]}</span></div>${f.detail ? `<div class="fd">${esc(f.detail)}</div>` : ""}</div>`).join("") || `<p class="muted small">None.</p>`}
+        ${findings.filter((f) => ["critical", "review", "action"].includes(f.severity)).map((f) => findingHTML(f, "margin-bottom:6px")).join("") || `<p class="muted small">None.</p>`}
+        <h3 style="margin:16px 0 8px">AI second look <span class="muted small" style="font-weight:400">notes only, never affect the decision</span></h3>
+        ${aiNotes.length ? aiNotes.map((f) => findingHTML(f, "margin-bottom:6px")).join("") : `<p class="muted small">${META.llm.enabled ? "AI found nothing beyond what the rules already checked." : "AI assist is off."}</p>`}
         ${r.llm_used?.length ? `<h3 style="margin:16px 0 6px">Where AI was used</h3><ul class="small" style="margin:0;padding-left:18px">${r.llm_used.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="small muted" style="margin-top:14px">No AI was used in this run; every value came from deterministic extraction.</p>`}</div>`,
     docs: () => `<div class="tab-body">${docs.length ? docs.map(([t, d]) => `
         <div class="doc-card"><div class="dh"><div><b>${esc(META.slots[t] || t)}</b><div class="small muted">${esc(d.filename)}${d.slot !== t ? ` · uploaded as ${esc(META.slots[d.slot] || d.slot)}` : ""}</div></div>
@@ -446,7 +542,10 @@ function renderSide(run) {
   };
   const show = (t) => { $$("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.t === t)); $("#tab-body").innerHTML = tabs[t](); };
   $("#tabs").onclick = (ev) => { const t = ev.target.dataset.t; if (t) show(t); };
+  $("#tab-body").onsubmit = (ev) => { if (ev.target.id === "ask-form") { ev.preventDefault(); const i = $("#ask-q"); ask(i.value); i.value = ""; } };
   $("#tab-body").onclick = async (ev) => {
+    const sq = ev.target.closest("[data-q]");
+    if (sq) { ask(sq.dataset.q); return; }
     const act = ev.target.closest("[data-act]")?.dataset.act;
     if (!act) return;
     try {
@@ -498,7 +597,7 @@ function renderHow() {
       <div class="card card-pad"><h2>How findings turn into a decision</h2><div class="sev-legend" style="margin-top:12px">${sev.map(([k, d]) => `<div class="finding ${k}"><div class="ft">${SEV_ICON[k]}<span>${SEV_LABEL[k]}</span></div><div class="fd" style="margin-left:0">${d}</div></div>`).join("")}</div>
         <p class="small muted" style="margin-top:12px">Each finding also adds to a 0–100 risk score (fixable item 10, review flag 25–50, critical 100). A score of 75 or more is rejected even without a single critical issue — several moderate red flags together are treated as one serious one.</p></div>
       <div class="card card-pad"><h2>Where AI is — and isn't — used</h2>
-        <p class="small" style="margin-top:8px"><b>AI helps with reading:</b> pulling fields out of messy documents the rules can't parse, identifying an unusual document, and wording the email and reviewer brief. Any value AI extracts must appear word-for-word in the document, and is labelled "AI" in the run view.</p>
+        <p class="small" style="margin-top:8px"><b>AI helps with reading and explaining:</b> filling in the form from the vendor's documents, pulling fields out of messy documents the rules can't parse, a "second look" that notes inconsistencies the rules don't cover, a chat that answers a reviewer's questions about a case, and wording the email and reviewer brief. Every value or note must be backed by text that actually appears in the documents, and is labelled "AI".</p>
         <p class="small"><b>AI never decides.</b> Check-digit maths, name matching, expiry dates, the fraud screen and the final status are all fixed rules, so the same submission always gets the same answer and every decision can be explained to an auditor.</p>
         <p class="small muted">If the AI service is unavailable, every step still runs on rules alone.</p></div>
     </div>`;

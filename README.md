@@ -34,11 +34,13 @@ Restart the app. The sidebar pill shows whether AI assist is on. With no key, or
 
 | The LLM does | The LLM never does |
 |---|---|
-| Extracts fields from documents the regex extractors can't parse | Decide a status or change a severity |
-| Classifies a document the keyword classifier is unsure about | Choose which items the vendor is asked for (inserted verbatim by code) |
+| **Autofill:** fills the submission form from the vendor's documents (rules extract first, AI fills gaps) | Decide a status or change a severity |
+| **AI second look:** notes inconsistencies the rules don't cover (e.g. a certificate for a different entity or address) | Count towards the risk score (AI notes are excluded from the decision by code) |
+| **Ask AI:** answers a reviewer's questions about one case, citing the findings it used | See full bank numbers (masked before every non-extraction call) |
+| Extracts fields from documents the regex extractors can't parse; classifies unusual documents | Choose which items the vendor is asked for (inserted verbatim by code) |
 | Writes the email greeting and sign-off, and the reviewer brief | Do checksum maths, date maths, name matching, or the fraud screen |
 
-Every value the LLM extracts must appear **literally in the document text**, otherwise it is discarded (an anti-hallucination guard). Fields are tagged `AI` or `RULE` in the run view.
+Guardrails: every value the AI extracts or autofills must appear **literally in a document**, and every AI note must quote real text, or it is discarded. AI notes must be high-confidence, and notes restating something the rules already flagged are dropped by code. Fields and notes are tagged `AI` or `RULE` throughout the UI.
 
 ## What's checked
 

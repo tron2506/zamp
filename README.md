@@ -14,6 +14,20 @@ Open http://localhost:8000. Then either:
 - go to **Dashboard → Run all test scenarios** to fill the dashboard, or
 - go to **New submission**, pick a scenario, click **Load into form** (or **Run now**), and watch it execute.
 
+### Importing vendors from a JSON file
+
+**New submission → Import vendors from JSON** takes a `.json` file with one or more vendors (up to 25). It accepts a single vendor object, a list of vendors, or `{"vendors": [...]}`. Field names match the form (`legal_name` is required). Documents are optional and are embedded as base64:
+
+```json
+{"vendors": [
+  {"legal_name": "Northwind Analytics Ltd", "country": "GB", "tax_id": "GB...", "iban": "GB...", "bic": "BARCGB22",
+   "contact_email": "ap@northwind.example",
+   "documents": [{"slot": "bank_letter", "filename": "letter.pdf", "content_base64": "JVBERi0..."}]}
+]}
+```
+
+Document slots: `tax_certificate`, `bank_letter`, `insurance_certificate`, `incorporation_certificate`. Invalid entries are skipped and listed with the reason, and the valid ones still run. Vendors run one after another in file order, so a later entry is cross-checked against earlier ones (shared bank account, duplicate, resubmission). **Download example file** in the same panel gives a ready-to-import file.
+
 Tests (unit tests plus every scenario end to end through real PDFs and SQLite):
 
 ```bash
@@ -86,7 +100,7 @@ The health check is `GET /healthz`, which needs no login.
 
 ```
 app/
-  main.py          FastAPI: submissions (form / JSON), SSE live stream, runs, reviewer override, vendor master
+  main.py          FastAPI: submissions (form / JSON / JSON batch), SSE live stream, runs, reviewer override, vendor master
   pipeline.py      the 9 stages + decide() (a pure function of the findings)
   rules.py         policy in one place: required fields/docs, thresholds, weights
   validators/      tax.py, bank.py, names.py: deterministic, unit-tested
@@ -101,7 +115,7 @@ data/              SQLite db, uploads, generated samples (git-ignored)
 
 ### API
 
-`POST /api/submissions` (multipart) · `POST /api/submissions/json` (base64 documents) · `GET /api/runs` · `GET /api/runs/{id}` · `GET /api/runs/{id}/stream` (SSE) · `POST /api/runs/{id}/review` · `GET /api/vendors` · `GET /api/outbox`
+`POST /api/submissions` (multipart) · `POST /api/submissions/json` (one vendor, base64 documents) · `POST /api/submissions/batch` (one or more vendors) · `GET /api/submissions/batch/example` · `GET /api/runs` · `GET /api/runs/{id}` · `GET /api/runs/{id}/stream` (SSE) · `POST /api/runs/{id}/review` · `GET /api/vendors` · `GET /api/outbox`
 
 ## Known limits
 

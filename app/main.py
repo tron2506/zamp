@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -156,37 +156,150 @@ async def autofill(request: Request):
         shutil.rmtree(folder, ignore_errors=True)
 
 
-class JsonDoc(BaseModel):
-    slot: str
-    filename: str
-    content_base64: str
+MAX_BATCH = 25
+_DOC_KEYS = {"slot", "filename", "content_base64"}
 
 
-class JsonSubmission(BaseModel):
-    model_config = {"extra": "allow"}
-    legal_name: str = ""
-    country: str = ""
-    documents: list[JsonDoc] = []
+def _parse_vendor(raw, run_id: str) -> tuple[dict, list[str]]:
+    """One vendor object from JSON -> a submission (documents written under the run's upload folder).
+    Raises ValueError with a message the person importing can act on. Returns (submission, warnings)."""
+    if not isinstance(raw, dict):
+        raise ValueError("each vendor must be a JSON object")
+    warnings, sub = [], {}
+    for k in FIELDS:
+        v = raw.get(k)
+        if isinstance(v, (dict, list)):
+            raise ValueError(f"field '{k}' must be text, not a {type(v).__name__}")
+        sub[k] = "" if v is None else str(v)
+    if not sub["legal_name"].strip():
+        raise ValueError("'legal_name' is required")
+    unknown = sorted(set(raw) - set(FIELDS) - {"documents"})
+    if unknown:
+        warnings.append("ignored unknown field(s): " + ", ".join(unknown))
+
+    docs = raw.get("documents") or []
+    if not isinstance(docs, list):
+        raise ValueError("'documents' must be a list of {slot, filename, content_base64}")
+    if len(docs) > len(SLOTS):
+        raise ValueError(f"at most {len(SLOTS)} documents per vendor")
+    decoded, seen = [], set()
+    for i, d in enumerate(docs, 1):
+        if not isinstance(d, dict) or not _DOC_KEYS <= set(d):
+            raise ValueError(f"document {i} needs slot, filename and content_base64")
+        if d["slot"] not in SLOTS:
+            raise ValueError(f"document {i}: unknown slot '{d['slot']}'; use one of {', '.join(SLOTS)}")
+        if d["slot"] in seen:
+            raise ValueError(f"document {i}: slot '{d['slot']}' is used twice")
+        seen.add(d["slot"])
+        try:
+            data = base64.b64decode(str(d["content_base64"]), validate=True)
+        except ValueError:
+            raise ValueError(f"document {i} ({d['filename']}): content_base64 is not valid base64") from None
+        if not data:
+            raise ValueError(f"document {i} ({d['filename']}) is empty")
+        if len(data) > MAX_UPLOAD:
+            raise ValueError(f"document {i} ({d['filename']}) is larger than 10 MB")
+        decoded.append((d["slot"], str(d["filename"]), data))
+
+    sub["documents"] = []
+    if decoded:                      # only touch the disk once the whole vendor is valid
+        folder = config.UPLOAD_DIR / run_id
+        folder.mkdir(parents=True, exist_ok=True)
+        for slot, fn, data in decoded:
+            path = folder / f"{slot}__{_safe(fn)}"
+            path.write_bytes(data)
+            sub["documents"].append({"slot": slot, "filename": fn, "path": str(path)})
+    return sub, warnings
 
 
 @app.post("/api/submissions/json")
-async def submit_json(body: JsonSubmission, request: Request):
-    """Machine-to-machine intake (e.g. from a vendor portal or email parser)."""
-    _rate_limit(request)
+async def submit_json(request: Request):
+    """Machine-to-machine intake for one vendor (e.g. from a vendor portal or email parser)."""
+    try:
+        raw = await request.json()
+    except ValueError:
+        raise HTTPException(422, "body is not valid JSON") from None
     run_id = _new_id()
-    folder = config.UPLOAD_DIR / run_id
-    folder.mkdir(parents=True, exist_ok=True)
-    raw = body.model_dump()
-    sub = {k: str(raw.get(k) or "") for k in FIELDS}
-    sub["documents"] = []
-    for d in body.documents:
-        if d.slot not in SLOTS:
-            raise HTTPException(422, f"unknown document slot {d.slot}; use one of {SLOTS}")
-        path = folder / f"{d.slot}__{_safe(d.filename)}"
-        path.write_bytes(base64.b64decode(d.content_base64))
-        sub["documents"].append({"slot": d.slot, "filename": d.filename, "path": str(path)})
+    try:
+        sub, warnings = _parse_vendor(raw, run_id)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from None
+    _rate_limit(request)
     _start(run_id, sub, "api")
-    return {"run_id": run_id}
+    return {"run_id": run_id, "warnings": warnings}
+
+
+@app.post("/api/submissions/batch")
+async def submit_batch(request: Request):
+    """Import one or more vendors from a JSON file: a single vendor object, a list of them, or {"vendors": [...]}.
+    Invalid entries are reported and skipped; valid ones run one after another, in file order, so a later
+    entry is cross-checked against earlier ones (shared bank account, duplicate, resubmission)."""
+    try:
+        body = await request.json()
+    except ValueError:
+        raise HTTPException(422, "the file is not valid JSON") from None
+    if isinstance(body, dict) and isinstance(body.get("vendors"), list):
+        items = body["vendors"]
+    elif isinstance(body, list):
+        items = body
+    elif isinstance(body, dict):
+        items = [body]
+    else:
+        raise HTTPException(422, 'expected a vendor object, a list of vendors, or {"vendors": [...]}')
+    if not items:
+        raise HTTPException(422, "the file contains no vendors")
+    if len(items) > MAX_BATCH:
+        raise HTTPException(413, f"at most {MAX_BATCH} vendors per file (this one has {len(items)})")
+
+    accepted, errors = [], []
+    for i, raw in enumerate(items, 1):
+        name = str(raw.get("legal_name") or "").strip() if isinstance(raw, dict) else ""
+        run_id = _new_id()
+        try:
+            sub, warnings = _parse_vendor(raw, run_id)
+        except ValueError as e:
+            errors.append({"index": i, "legal_name": name, "error": str(e)})
+            continue
+        accepted.append({"index": i, "legal_name": name, "run_id": run_id, "warnings": warnings, "sub": sub})
+    if not accepted:
+        raise HTTPException(422, {"message": "no vendor in the file could be imported", "errors": errors})
+
+    try:
+        _rate_limit(request, cost=len(accepted))
+    except HTTPException:
+        for a in accepted:
+            shutil.rmtree(config.UPLOAD_DIR / a["run_id"], ignore_errors=True)
+        raise
+    for a in accepted:
+        db.create_run(a["run_id"], a["sub"], "json-import")
+
+    async def go():
+        for a in accepted:
+            await pipeline.run_pipeline(a["run_id"], a.pop("sub"), delay=0.05)
+    t = asyncio.create_task(go())
+    _tasks.add(t)
+    t.add_done_callback(_tasks.discard)
+    return {"accepted": [{k: v for k, v in a.items() if k != "sub"} for a in accepted], "errors": errors}
+
+
+@app.get("/api/submissions/batch/example")
+def batch_example():
+    """A ready-to-import example file: two vendors with their documents embedded, one with no documents."""
+    vendors = []
+    for key in ("northwind_happy", "helios_related_holder"):
+        m = next(m for m in samples.load_all() if m["key"] == key)
+        sub = samples.to_submission(m)
+        v = {k: sub.get(k, "") for k in FIELDS if sub.get(k)}
+        v["documents"] = [{"slot": d["slot"], "filename": d["filename"],
+                           "content_base64": base64.b64encode(Path(d["path"]).read_bytes()).decode()}
+                          for d in sub["documents"]]
+        vendors.append(v)
+    vendors.append({"legal_name": "Juniper Print Co Ltd", "country": "GB", "address": "4 Mill Lane, Leeds LS1 4AB",
+                    "contact_name": "Sam Patel", "contact_email": "sam@juniperprint.co.uk",
+                    "contact_phone": "+44 113 496 0555", "tax_id": "GB123456782", "bank_name": "Barclays",
+                    "iban": "GB33BUKB20201555555555", "bic": "BUKBGB22", "documents": []})
+    return JSONResponse({"vendors": vendors},
+                        headers={"Content-Disposition": 'attachment; filename="vendors_example.json"'})
 
 
 def _sample_submission(key: str, run_id: str) -> dict:

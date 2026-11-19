@@ -217,6 +217,21 @@ async function renderNew(_arg, params) {
           <div class="row"><button class="btn sm" data-load="${esc(s.key)}">Load into form</button><button class="btn sm" data-docs="${esc(s.key)}" title="Attach only the PDFs, then try AI autofill">Docs only</button><button class="btn sm primary" data-run="${esc(s.key)}">${I.play}Run now</button></div></div>`).join("")}
       </div></div>
     </details>
+    <details class="card scn-wrap" id="import-wrap" style="margin-bottom:14px">
+      <summary><div><h2>Import vendors from JSON</h2><span class="muted small">Onboard one or many vendors at once from a <code>.json</code> file. Each vendor runs through the same checks as the form.</span></div><span class="chip">.json</span></summary>
+      <div class="card-pad">
+        <div class="import-grid">
+          <label class="drop json-drop" id="json-drop"><input type="file" accept="application/json,.json" id="json-file">
+            <div class="ic">${I.doc}</div><div><span class="req">Up to 25 vendors per file</span><b>Vendors file (.json)</b><span class="fname">Drop or click to choose a file</span></div></label>
+          <div class="small muted import-help">
+            <p style="margin:0 0 6px">Accepted shapes: one vendor object, a list of vendors, or <code>{"vendors": [ … ]}</code>. Field names match the form: <code>legal_name</code> (required), <code>country</code>, <code>address</code>, <code>contact_name</code>, <code>contact_email</code>, <code>contact_phone</code>, <code>tax_id</code>, <code>bank_name</code>, <code>account_holder</code>, <code>iban</code>, <code>bic</code>, <code>routing_number</code>, <code>account_number</code>, <code>ifsc</code>, and others.</p>
+            <p style="margin:0 0 10px">Documents are optional: <code>"documents": [{"slot": "bank_letter", "filename": "letter.pdf", "content_base64": "…"}]</code>, with slot one of ${Object.keys(slotNames).map((k) => `<code>${k}</code>`).join(", ")}. Vendors run in file order, so later entries are cross-checked against earlier ones.</p>
+            <a class="btn sm" href="/api/submissions/batch/example" download="vendors_example.json">${I.doc}Download example file</a>
+          </div>
+        </div>
+        <div id="import-result"></div>
+      </div>
+    </details>
     <form class="card" id="form" autocomplete="off">
       <input type="hidden" name="previous_run_id"><input type="hidden" name="source" value="form">
       <div class="autofill-bar"><div class="ab-text">${I.spark}<div><b>Have your documents ready?</b> Upload them in section 5 and let AI fill in this form. Every value is copied from your documents and tagged with its source, so you can check it before submitting.</div></div><button type="button" class="btn ai-btn autofill-btn">${I.spark}Autofill from documents</button></div>
@@ -361,6 +376,51 @@ async function renderNew(_arg, params) {
     }
   };
   cleanup.push(() => { view.onclick = null; });
+
+  const importJson = async (file) => {
+    const out = $("#import-result"), drop = $("#json-drop");
+    if (!file) return;
+    $(".fname", drop).textContent = `${file.name} · ${Math.max(1, Math.round(file.size / 1024))} KB`;
+    let body;
+    try { body = JSON.parse(await file.text()); }
+    catch (err) { out.innerHTML = `<div class="banner bad">${I.x}<span><b>${esc(file.name)}</b> is not valid JSON: ${esc(err.message)}</span></div>`; return; }
+    out.innerHTML = `<div class="banner">${I.spin}<span>Importing…</span></div>`;
+    const r = await fetch("/api/submissions/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    let res = {}; try { res = await r.json(); } catch {}
+    if (!r.ok) {
+      const d = res.detail, errs = (d && d.errors) || [];
+      out.innerHTML = `<div class="banner bad">${I.x}<div><b>Nothing imported.</b> ${esc(typeof d === "string" ? d : (d && d.message) || r.statusText)}
+        ${errs.length ? `<ul class="small" style="margin:6px 0 0;padding-left:18px">${errs.map((e) => `<li>Vendor ${e.index}${e.legal_name ? ` (${esc(e.legal_name)})` : ""}: ${esc(e.error)}</li>`).join("")}</ul>` : ""}</div></div>`;
+      return;
+    }
+    window._seedUntil = Date.now() + 15000;
+    const rows = res.accepted.map((a) => `<tr><td class="muted">${a.index}</td><td><b>${esc(a.legal_name)}</b>${a.warnings.map((w) => `<div class="small muted">${esc(w)}</div>`).join("")}</td>
+        <td data-status="${a.run_id}">${badge("RUNNING")}</td><td><a class="btn sm" href="#/run/${a.run_id}">${I.play}Watch</a></td></tr>`).join("")
+      + res.errors.map((e) => `<tr><td class="muted">${e.index}</td><td><b>${esc(e.legal_name || "(no name)")}</b><div class="small" style="color:var(--crit-ink)">${esc(e.error)}</div></td><td><span class="chip">Skipped</span></td><td></td></tr>`).join("");
+    out.innerHTML = `<div class="banner">${I.info}<span>Imported <b>${res.accepted.length}</b> vendor${res.accepted.length === 1 ? "" : "s"}${res.errors.length ? `, skipped <b>${res.errors.length}</b>` : ""}. They run one after another; results also appear on the <a href="#/">Dashboard</a>.</span></div>
+      <div class="table-wrap"><table class="t"><thead><tr><th>#</th><th>Vendor</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    const pending = new Set(res.accepted.map((a) => a.run_id));
+    const poll = setInterval(async () => {
+      if (!document.body.contains(out) || !pending.size) { clearInterval(poll); return; }
+      for (const id of [...pending]) {
+        try {
+          const run = await api(`/api/runs/${id}`);
+          if (run.status === "RUNNING") continue;
+          pending.delete(id);
+          const cell = $(`[data-status="${id}"]`, out);
+          if (cell) cell.innerHTML = badge(run.status);
+        } catch { pending.delete(id); }
+      }
+    }, 1500);
+    cleanup.push(() => clearInterval(poll));
+  };
+  $("#json-file").onchange = (e) => { importJson(e.target.files[0]); e.target.value = ""; };
+  {
+    const drop = $("#json-drop");
+    drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+    drop.ondragleave = () => drop.classList.remove("over");
+    drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); importJson(e.dataTransfer.files[0]); };
+  }
   $("#clear").onclick = () => { clearTags(); form.reset(); Object.keys(slotNames).forEach((k) => setFile(k, null)); $("#banner").innerHTML = ""; syncCountry(); };
   form.onsubmit = async (e) => {
     e.preventDefault();

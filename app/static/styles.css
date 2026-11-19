@@ -322,3 +322,13 @@ label.autofilled input, label.autofilled select { border-color: color-mix(in srg
 .tabs { overflow-x: auto; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
 .tabs button { white-space: nowrap; padding: 11px 8px; flex: none; }
+
+/* JSON import */
+.import-grid { display: grid; grid-template-columns: minmax(0, 280px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.import-help code { font-size: 11.5px; }
+.json-drop { min-height: 96px; }
+#import-result:not(:empty) { margin-top: 14px; }
+#import-result .banner { margin-bottom: 10px; }
+.banner.bad { background: var(--crit-soft); align-items: flex-start; }
+.banner.bad > svg { color: var(--crit-ink); }
+@media (max-width: 760px) { .import-grid { grid-template-columns: 1fr; } }

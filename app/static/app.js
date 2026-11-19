@@ -193,6 +193,13 @@ async function renderNew(_arg, params) {
   const slotNames = META.slots;
   view.innerHTML = `
     <div class="page-head"><div><h1>New vendor submission</h1><p>What a vendor fills in on the onboarding portal. Load a test scenario or enter your own.</p></div></div>
+    <div class="card roadmap"><div class="roadmap-head"><span class="chip soon">Not yet added</span><h2>Planned verification features</h2></div>
+      <p class="small muted" style="margin:6px 0 10px">Every submission already goes through automated checks: completeness, tax ID and bank number formats and check digits, consistency across documents, expiry and cover, and fraud cross-checks. The following are not built yet:</p>
+      <ul class="roadmap-list">
+        <li><b>Document verification with the issuer:</b> confirming that a tax certificate, bank letter or insurance certificate is genuine with the tax authority, company registry, bank or insurer. Today documents are checked for consistency, not authenticity.</li>
+        <li><b>Bank account verification with the bank:</b> confirming the account exists and is held by this vendor (e.g. penny drop, Confirmation of Payee). Today: format and check digits, plus cross-checks against the bank letter and the vendor master.</li>
+        <li><b>Email and mobile number OTP verification:</b> one-time codes proving the contact controls the email address and phone number given.</li>
+      </ul></div>
     <div id="banner"></div>
     <details class="card scn-wrap" ${params.get("from") ? "" : "open"} style="margin-bottom:14px">
       <summary><div><h2>Test scenarios</h2><span class="muted small">Happy path + 4 designed edge cases. “Load” fills the form so you can inspect or tweak it first.</span></div><span class="chip">${META.scenarios.length}</span></summary>
@@ -215,13 +222,14 @@ async function renderNew(_arg, params) {
       </div></fieldset>
       <fieldset><legend class="sec"><span class="n">2</span>Contact</legend><div class="form-grid">
         <label class="f">Contact name *<input type="text" name="contact_name"></label>
-        <label class="f">Contact email *<input type="email" name="contact_email"></label>
-        <label class="f">Contact phone *<input type="text" name="contact_phone"></label>
+        <label class="f">Contact email *<input type="email" name="contact_email"><span class="devnote"><b>Developer note:</b> email OTP verification is not yet added.</span></label>
+        <label class="f">Contact phone *<input type="text" name="contact_phone"><span class="devnote"><b>Developer note:</b> OTP verification for mobile numbers is not yet added.</span></label>
       </div></fieldset>
       <fieldset><legend class="sec"><span class="n">3</span>Tax registration</legend><div class="form-grid">
         <label class="f">Tax ID * <span class="hint" id="tax-hint">Select a country first</span><input type="text" name="tax_id"></label>
       </div></fieldset>
-      <fieldset><legend class="sec"><span class="n">4</span>Bank details</legend><div class="form-grid">
+      <fieldset><legend class="sec"><span class="n">4</span>Bank details</legend>
+        <p class="devnote-block"><span class="devnote"><b>Developer note:</b> verifying the account with the bank (penny drop / Confirmation of Payee) is not yet added. Bank details are checked for format, check digits and consistency with the bank letter.</span></p><div class="form-grid">
         <label class="f">Bank name *<input type="text" name="bank_name"></label>
         <label class="f">Account holder name<input type="text" name="account_holder"></label>
         <label class="f" data-scheme="iban">IBAN *<input type="text" name="iban"></label>
@@ -231,6 +239,7 @@ async function renderNew(_arg, params) {
         <label class="f" data-scheme="aba ifsc">Account number *<input type="text" name="account_number"></label>
       </div></fieldset>
       <fieldset><legend class="sec"><span class="n">5</span>Documents <span class="muted small" style="font-weight:400">PDF, max 10 MB each</span></legend>
+        <p class="devnote-block"><span class="devnote"><b>Developer note:</b> verifying that documents are genuine with their issuers is not yet added. Documents are read, identified and checked for consistency, expiry and coverage.</span></p>
         <div class="drops">${Object.entries(slotNames).map(([slot, name]) => `
           <label class="drop" data-slot="${slot}"><input type="file" accept="application/pdf,.pdf" data-slot="${slot}">
             <div class="ic">${I.doc}</div><div><span class="req">${META.required_docs.includes(slot) ? "Required" : "Recommended"}</span><b>${esc(name)}</b><span class="fname">Drop or click to upload</span></div></label>`).join("")}
